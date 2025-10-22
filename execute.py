@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 execute.py
+Reads data.csv, computes a small summary and prints JSON to stdout.
+Compatible with Python 3.11+ and pandas 2.3.
 
-Reads data.csv and produces a small JSON summary to stdout.
-Designed to run on Python 3.11+ with pandas 2.3.x.
+NOTE: This script intentionally does not write result.json to disk; CI captures stdout
+and redirects it to result.json (python execute.py > result.json).
 """
 
 from __future__ import annotations
@@ -15,80 +17,68 @@ from typing import Any, Dict
 import pandas as pd
 
 
-def summarize_dataframe(df: pd.DataFrame) -> Dict[str, Any]:
-    """Create a JSON-serializable summary for the dataframe."""
-    result: Dict[str, Any] = {}
-
-    # Basic info
-    result["row_count"] = int(len(df))
-    result["columns"] = list(df.columns.astype(str))
-
-    # Preview (first 10 rows)
-    preview = df.head(10).to_dict(orient="records")
-    # Ensure all values are JSON serializable (convert numpy types)
-    def _to_python(o):
+def safe_read_csv(path: str) -> pd.DataFrame:
+    # Read CSV robustly; try common encodings if needed
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        # Try with utf-8-sig and latin1 fallback
         try:
-            if pd.isna(o):
-                return None
+            return pd.read_csv(path, encoding='utf-8-sig')
         except Exception:
-            pass
-        if hasattr(o, "item"):
-            try:
-                return o.item()
-            except Exception:
-                pass
-        return o
+            return pd.read_csv(path, encoding='latin1')
 
-    preview_cleaned = [ {k: _to_python(v) for k, v in row.items()} for row in preview ]
-    result["preview"] = preview_cleaned
 
-    # Numeric summaries
+def summarize_df(df: pd.DataFrame) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    out['row_count'] = int(len(df))
+    out['columns'] = list(df.columns)
+
+    # For numeric columns compute count, sum, mean, min, max
     numeric = df.select_dtypes(include=["number"]).columns.tolist()
-    numeric_summary: Dict[str, Dict[str, Any]] = {}
+    stats = {}
     for col in numeric:
-        s = df[col].dropna()
-        if len(s) == 0:
-            numeric_summary[col] = {"count": 0}
-            continue
-        numeric_summary[col] = {
-            "count": int(s.count()),
-            "sum": float(s.sum()),
-            "mean": float(s.mean()),
-            "median": float(s.median()),
-            "min": float(s.min()),
-            "max": float(s.max()),
+        series = df[col].dropna()
+        stats[col] = {
+            'count': int(series.count()),
+            'sum': float(series.sum()) if not series.empty else 0.0,
+            'mean': float(series.mean()) if not series.empty else None,
+            'min': float(series.min()) if not series.empty else None,
+            'max': float(series.max()) if not series.empty else None,
         }
-    result["numeric_summary"] = numeric_summary
+    out['numeric_summary'] = stats
 
-    # If there is a 'product' column, give totals per product as an example
-    if "product" in df.columns and "revenue" in df.columns:
-        try:
-            grp = df.groupby("product")["revenue"].sum().sort_values(ascending=False)
-            result["total_revenue_by_product"] = {str(k): float(v) for k, v in grp.items()}
-        except Exception:
-            # don't fail just because grouping didn't work
-            result["total_revenue_by_product"] = {}
+    # If there is a 'name' or 'category' column, include value counts for first string column
+    string_cols = df.select_dtypes(include=["object", "string"]).columns.tolist()
+    if string_cols:
+        first = string_cols[0]
+        out['top_values_for_{}'.format(first)] = (
+            df[first].value_counts(dropna=True).head(10).to_dict()
+        )
 
-    return result
+    # Provide first 20 rows as records (helpful for quick inspection)
+    out['preview'] = df.head(20).to_dict(orient='records')
+    return out
 
 
-def main(argv=None) -> int:
-    argv = argv or sys.argv[1:]
-    input_path = "data.csv"
+def main(argv: list[str]) -> int:
+    csv_path = 'data.csv'
 
     try:
-        df = pd.read_csv(input_path)
+        df = safe_read_csv(csv_path)
     except FileNotFoundError:
-        print(json.dumps({"error": f"{input_path} not found"}, indent=2))
+        print(json.dumps({"error": f"File not found: {csv_path}"}))
         return 1
-    except Exception as e:  # pragma: no cover - helpful message for unexpected parse errors
-        print(json.dumps({"error": str(e)}))
+    except Exception as exc:
+        print(json.dumps({"error": f"Failed to read {csv_path}: {exc}"}))
         return 2
 
-    summary = summarize_dataframe(df)
-    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    summary = summarize_df(df)
+
+    # Dump to stdout
+    json.dump(summary, sys.stdout, indent=2, ensure_ascii=False)
     return 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+if __name__ == '__main__':
+    raise SystemExit(main(sys.argv))
