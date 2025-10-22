@@ -1,6 +1,5 @@
-id,name,region,revenue
-1,Alpha,North,1000
-2,Beta,South,1500
-3,Gamma,East,2000
-4,Delta,West,1750
-5,Epsilon,North,1250
+id,name,category,amount
+1,Alice,alpha,100.50
+2,Bob,beta,200
+3,Charlie,alpha,150
+4,Denise,gamma,50.25
