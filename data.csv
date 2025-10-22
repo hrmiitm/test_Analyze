@@ -1,6 +1,11 @@
-id,name,department,amount
-1,Alice,Sales,100.0
-2,Bob,Sales,150.0
-3,Charlie,Support,80.0
-4,Dave,Support,120.0
-5,Eve,Marketing,200.0
+date,region,product,units,price
+2025-01-01,North,Widget A,10,9.99
+2025-01-02,North,Widget B,5,19.99
+2025-01-03,North,Widget A,8,9.99
+2025-01-04,North,Widget C,2,29.99
+2025-01-05,South,Widget B,7,19.99
+2025-01-06,South,Widget A,6,9.99
+2025-01-07,South,Widget C,3,29.99
+2025-01-08,North,Widget B,4,19.99
+2025-01-09,South,Widget A,12,9.99
+2025-01-10,North,Widget C,1,29.99
