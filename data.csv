@@ -1,5 +1,7 @@
-id,name,category,amount
-1,Alice,alpha,100.50
-2,Bob,beta,200
-3,Charlie,alpha,150
-4,Denise,gamma,50.25
+id,name,category,amount,date
+1,Alice,Sales,1200.50,2023-01-15
+2,Bob,Engineering,0.00,2023-01-18
+3,Charlie,Sales,850.00,2023-02-01
+4,Denise,Marketing,560.75,2023-02-12
+5,Ethan,Engineering,2300.00,2023-03-03
+6,Fiona,Marketing,125.25,2023-03-20
