@@ -2,82 +2,86 @@
 """
 execute.py
 
-Reads data.csv (or data.xlsx if CSV not present), computes a small summary
-and prints JSON to stdout. Intended to be run as:
+Reads data.csv (converted from the provided data.xlsx) and writes a JSON summary to stdout.
+Designed for Python 3.11+ and pandas 2.3.
 
-  python execute.py > result.json
-
-Requirements: Python 3.11+, pandas 2.3.x
+The script is defensive: it works with arbitrary CSVs and summarizes numeric columns and basic counts.
 """
 
 from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
+from typing import Any, Dict
 
 import pandas as pd
 
 
-def main() -> int:
-    # Prefer CSV (converted from data.xlsx for this repository), but fall back to Excel
-    csv_path = Path("data.csv")
-    xlsx_path = Path("data.xlsx")
+def summarize_dataframe(df: pd.DataFrame) -> Dict[str, Any]:
+    """Compute a simple summary for the dataframe.
 
-    if csv_path.exists():
-        df = pd.read_csv(csv_path)
-    elif xlsx_path.exists():
-        df = pd.read_excel(xlsx_path)
-    else:
-        print("ERROR: data.csv or data.xlsx not found", file=sys.stderr)
-        return 2
+    - rows: list of records (converted to native Python types)
+    - row_count: number of rows
+    - numeric_summary: sum and mean for each numeric column
+    - top_values: for non-numeric columns, up to 5 most frequent values
+    """
+    result: Dict[str, Any] = {}
 
-    # Basic validation
-    if df.empty:
-        payload = {"rows": 0, "columns": [], "summary": {}, "head": []}
-        print(json.dumps(payload, indent=2))
-        return 0
-
-    # Prepare metadata
-    meta = {
-        "rows": int(len(df)),
-        "columns": list(map(str, df.columns)),
-    }
-
-    # Head (first 10 rows) as records, ensure not to include non-serializable types
+    # rows
     try:
-        head_records = df.head(10).replace({pd.NA: None}).to_dict(orient="records")
+        rows = df.where(pd.notnull(df), None).to_dict(orient="records")
     except Exception:
-        # fallback: convert via astype(str)
-        head_records = df.head(10).astype(str).to_dict(orient="records")
+        # Fallback: convert via values
+        rows = [dict(zip(df.columns.tolist(), row)) for row in df.values]
 
-    # Summary for numeric and categorical columns
-    summary = {
-        "numeric": {},
-        "categorical": {},
-    }
+    result["rows"] = rows
+    result["row_count"] = len(df)
 
-    numeric_cols = df.select_dtypes(include=["number"]).columns
-    for col in numeric_cols:
-        ser = df[col].dropna()
-        summary["numeric"][str(col)] = {
-            "count": int(ser.count()),
-            "sum": float(ser.sum()) if not ser.empty else 0.0,
-            "mean": float(ser.mean()) if not ser.empty else 0.0,
-            "min": float(ser.min()) if not ser.empty else None,
-            "max": float(ser.max()) if not ser.empty else None,
-        }
+    # Numeric summary
+    numeric = df.select_dtypes(include=["number"]).columns.tolist()
+    numeric_summary: Dict[str, Dict[str, Any]] = {}
+    for col in numeric:
+        series = pd.to_numeric(df[col], errors="coerce")
+        total = series.sum(skipna=True)
+        mean = series.mean(skipna=True)
+        numeric_summary[col] = {"sum": None if pd.isna(total) else float(total), "mean": None if pd.isna(mean) else float(mean)}
 
-    # For object/ categorical columns provide top value counts
-    cat_cols = df.select_dtypes(include=["object", "category"]).columns
-    for col in cat_cols:
-        top = df[col].value_counts(dropna=True).head(5)
-        summary["categorical"][str(col)] = [{"value": v, "count": int(c)} for v, c in top.items()]
+    result["numeric_summary"] = numeric_summary
 
-    payload = {**meta, "summary": summary, "head": head_records}
+    # Top values for non-numeric columns
+    non_numeric = df.select_dtypes(exclude=["number"]).columns.tolist()
+    top_values: Dict[str, Any] = {}
+    for col in non_numeric:
+        try:
+            counts = df[col].value_counts(dropna=False).head(5)
+            top_values[col] = [{"value": (None if (pd.isna(v) and v != v) else v), "count": int(c)} for v, c in counts.items()]
+        except Exception:
+            top_values[col] = []
 
-    # Emit JSON to stdout
-    print(json.dumps(payload, indent=2, default=str))
+    result["top_values"] = top_values
+
+    return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:]) if argv is None else argv
+
+    input_path = "data.csv"
+
+    try:
+        df = pd.read_csv(input_path)
+    except FileNotFoundError:
+        print(f"Error: {input_path} not found. Make sure data.csv is present.", file=sys.stderr)
+        return 2
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"Error reading {input_path}: {exc}", file=sys.stderr)
+        return 3
+
+    summary = summarize_dataframe(df)
+
+    # Write JSON to stdout
+    json.dump(summary, sys.stdout, indent=2, ensure_ascii=False)
+    sys.stdout.write("\n")
     return 0
 
 
