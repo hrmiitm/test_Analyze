@@ -1,88 +1,58 @@
+"""
+Simple script to read data.csv and emit a JSON summary to stdout.
+Designed to run with Python 3.11+ and pandas 2.3.
+"""
+
+from __future__ import annotations
+
 import json
-from pathlib import Path
+import sys
 
 import pandas as pd
 
 
-def main() -> None:
-    """Read sales data, compute summary metrics, and print a JSON report.
+def compute_summary(df: pd.DataFrame) -> dict:
+    """Return a summary dictionary computed from dataframe.
 
-    Works with Python 3.11+ and pandas 2.3+. If data.xlsx is not present,
-    falls back to data.csv to make CI and local runs robust.
+    The returned object will be JSON-serializable and contain two keys:
+    - rows: list of row dicts
+    - by_product: total Revenue per Product
     """
-    # Read the data
-    if Path("data.xlsx").exists():
-        df = pd.read_excel("data.xlsx")
+    # Ensure Revenue is numeric (coerce non-numeric to NaN -> treat as 0)
+    if "Revenue" in df.columns:
+        # strip common characters then convert
+        df["Revenue"] = (
+            df["Revenue"].astype(str).str.replace(",", "", regex=False).str.replace("$", "", regex=False)
+        )
+        df["Revenue"] = pd.to_numeric(df["Revenue"], errors="coerce").fillna(0.0)
     else:
+        df["Revenue"] = 0.0
+
+    rows = df.to_dict(orient="records")
+
+    by_product = []
+    if "Product" in df.columns:
+        gb = df.groupby("Product", as_index=False)["Revenue"].sum()
+        by_product = gb.to_dict(orient="records")
+
+    return {"rows": rows, "by_product": by_product}
+
+
+def main() -> int:
+    try:
         df = pd.read_csv("data.csv")
+    except FileNotFoundError:
+        print(json.dumps({"error": "data.csv not found in repository"}, indent=2))
+        return 1
+    except Exception as exc:  # pragma: no cover - surface errors
+        print(json.dumps({"error": f"Failed to read data.csv: {exc}"}, indent=2))
+        return 1
 
-    # Ensure expected columns exist
-    expected_cols = {"date", "region", "product", "units", "price"}
-    missing = expected_cols - set(df.columns)
-    if missing:
-        raise ValueError(f"Missing required columns: {sorted(missing)}")
-
-    # Compute revenue
-    df["revenue"] = df["units"] * df["price"]
-
-    # row_count
-    row_count = len(df)
-
-    # regions: count of distinct regions
-    regions_count = df["region"].nunique()
-
-    # top_n_products_by_revenue (n=3)
-    n = 3
-    top_products = (
-        df.groupby("product")["revenue"]
-        .sum()
-        .sort_values(ascending=False)
-        .head(n)
-        .reset_index()
-    )
-    top_products_list = [
-        {"product": row["product"], "revenue": float(row["revenue"])}
-        for _, row in top_products.iterrows()
-    ]
-
-    # rolling_7d_revenue_by_region: for each region, last value of 7-day moving average of daily revenue
-    # Ensure datetime dtype for date column
-    df["date"] = pd.to_datetime(df["date"])  # robust for both xlsx and csv inputs
-
-    # Daily revenue per region and date
-    daily_rev = (
-        df.groupby(["region", "date"])["revenue"]
-        .sum()
-        .reset_index()
-        .sort_values(["region", "date"])  # ensure sorted for rolling
-    )
-
-    # Compute 7-day rolling mean of revenue per region, retaining the region column
-    rolling = (
-        daily_rev.groupby("region")
-        .apply(lambda g: g.set_index("date")["revenue"].rolling("7D").mean(), include_groups=False)
-        .reset_index(name="rolling_7d_revenue")
-    )
-
-    last_rolling = (
-        rolling.sort_values(["region", "date"])  # ensure order
-        .groupby("region")
-        .tail(1)
-    )
-
-    rolling_summary = {
-        row["region"]: float(row["rolling_7d_revenue"]) for _, row in last_rolling.iterrows()
-    }
-
-    result = {
-        "row_count": int(row_count),
-        "regions": int(regions_count),
-        "top_n_products_by_revenue": top_products_list,
-        "rolling_7d_revenue_by_region": rolling_summary,
-    }
-
+    result = compute_summary(df)
+    # Emit to stdout as JSON
     print(json.dumps(result, indent=2))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
