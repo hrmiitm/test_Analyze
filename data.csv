@@ -1,0 +1,11 @@
+date,region,product,units,price
+2024-10-01,North,Widget A,10,20.0
+2024-10-02,North,Widget B,5,30.0
+2024-10-03,North,Widget A,8,20.0
+2024-10-04,South,Widget A,12,20.0
+2024-10-05,South,Widget B,7,30.0
+2024-10-06,North,Widget B,10,30.0
+2024-10-07,South,Widget A,4,20.0
+2024-10-08,North,Widget A,6,20.0
+2024-10-09,South,Widget B,5,30.0
+2024-10-10,North,Widget A,3,20.0
