@@ -1,6 +1,6 @@
-Product,Region,Year,Revenue
-Widget A,North,2021,1200.50
-Widget B,South,2021,850.00
-Widget A,East,2022,980.25
-Widget C,West,2022,430.00
-Widget B,North,2022,1250.00
+date,product,region,revenue,units
+2025-01-01,Widget A,North,1200.50,10
+2025-01-02,Widget B,South,850.00,5
+2025-01-03,Widget A,East,760.25,7
+2025-01-04,Widget C,West,430.00,3
+2025-01-05,Widget B,North,910.75,6
