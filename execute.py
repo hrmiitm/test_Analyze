@@ -1,56 +1,92 @@
+#!/usr/bin/env python3
 """
-Simple script to read data.csv and emit a JSON summary to stdout.
-Designed to run with Python 3.11+ and pandas 2.3.
+execute.py
+
+Reads data.csv and produces a small JSON summary to stdout.
+Designed to run on Python 3.11+ with pandas 2.3.x.
 """
 
 from __future__ import annotations
 
 import json
 import sys
+from typing import Any, Dict
 
 import pandas as pd
 
 
-def compute_summary(df: pd.DataFrame) -> dict:
-    """Return a summary dictionary computed from dataframe.
+def summarize_dataframe(df: pd.DataFrame) -> Dict[str, Any]:
+    """Create a JSON-serializable summary for the dataframe."""
+    result: Dict[str, Any] = {}
 
-    The returned object will be JSON-serializable and contain two keys:
-    - rows: list of row dicts
-    - by_product: total Revenue per Product
-    """
-    # Ensure Revenue is numeric (coerce non-numeric to NaN -> treat as 0)
-    if "Revenue" in df.columns:
-        # strip common characters then convert
-        df["Revenue"] = (
-            df["Revenue"].astype(str).str.replace(",", "", regex=False).str.replace("$", "", regex=False)
-        )
-        df["Revenue"] = pd.to_numeric(df["Revenue"], errors="coerce").fillna(0.0)
-    else:
-        df["Revenue"] = 0.0
+    # Basic info
+    result["row_count"] = int(len(df))
+    result["columns"] = list(df.columns.astype(str))
 
-    rows = df.to_dict(orient="records")
+    # Preview (first 10 rows)
+    preview = df.head(10).to_dict(orient="records")
+    # Ensure all values are JSON serializable (convert numpy types)
+    def _to_python(o):
+        try:
+            if pd.isna(o):
+                return None
+        except Exception:
+            pass
+        if hasattr(o, "item"):
+            try:
+                return o.item()
+            except Exception:
+                pass
+        return o
 
-    by_product = []
-    if "Product" in df.columns:
-        gb = df.groupby("Product", as_index=False)["Revenue"].sum()
-        by_product = gb.to_dict(orient="records")
+    preview_cleaned = [ {k: _to_python(v) for k, v in row.items()} for row in preview ]
+    result["preview"] = preview_cleaned
 
-    return {"rows": rows, "by_product": by_product}
+    # Numeric summaries
+    numeric = df.select_dtypes(include=["number"]).columns.tolist()
+    numeric_summary: Dict[str, Dict[str, Any]] = {}
+    for col in numeric:
+        s = df[col].dropna()
+        if len(s) == 0:
+            numeric_summary[col] = {"count": 0}
+            continue
+        numeric_summary[col] = {
+            "count": int(s.count()),
+            "sum": float(s.sum()),
+            "mean": float(s.mean()),
+            "median": float(s.median()),
+            "min": float(s.min()),
+            "max": float(s.max()),
+        }
+    result["numeric_summary"] = numeric_summary
+
+    # If there is a 'product' column, give totals per product as an example
+    if "product" in df.columns and "revenue" in df.columns:
+        try:
+            grp = df.groupby("product")["revenue"].sum().sort_values(ascending=False)
+            result["total_revenue_by_product"] = {str(k): float(v) for k, v in grp.items()}
+        except Exception:
+            # don't fail just because grouping didn't work
+            result["total_revenue_by_product"] = {}
+
+    return result
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    argv = argv or sys.argv[1:]
+    input_path = "data.csv"
+
     try:
-        df = pd.read_csv("data.csv")
+        df = pd.read_csv(input_path)
     except FileNotFoundError:
-        print(json.dumps({"error": "data.csv not found in repository"}, indent=2))
+        print(json.dumps({"error": f"{input_path} not found"}, indent=2))
         return 1
-    except Exception as exc:  # pragma: no cover - surface errors
-        print(json.dumps({"error": f"Failed to read data.csv: {exc}"}, indent=2))
-        return 1
+    except Exception as e:  # pragma: no cover - helpful message for unexpected parse errors
+        print(json.dumps({"error": str(e)}))
+        return 2
 
-    result = compute_summary(df)
-    # Emit to stdout as JSON
-    print(json.dumps(result, indent=2))
+    summary = summarize_dataframe(df)
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
 
 
